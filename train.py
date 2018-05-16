@@ -25,10 +25,47 @@ parser.add_argument('--hidden_units', type=int, help='Number of hidden units')
 args, _ = parser.parse_known_args()
 
 # This method loads and tunes in a model
-#def load_model(arch='vgg19', num_labels=102, hidden_units=4096):
+def load_model(arch='vgg19', num_labels=102, hidden_units=4096):
+    # Load a pre-trained model
+    if arch=='vgg19':
+        # Load a pre-trained model
+        model = models.vgg19(pretrained=True)
+    elif arch=='alexnet':
+        model = models.alexnet(pretrained=True)
+    else:
+        raise ValueError('Unexpected network architecture', arch)
+        
+    # Freeze its parameters
+    for param in model.parameters():
+        param.requires_grad = False
     
+    # Features, removing the last layer
+    features = list(model.classifier.children())[:-1]
+  
+    # Number of filters in the bottleneck layer
+    num_filters = model.classifier[len(features)].in_features
+
+    # Extend the existing architecture with new layers
+    features.extend([
+        nn.Dropout(),
+        nn.Linear(num_filters, hidden_units),
+        nn.ReLU(True),
+        nn.Dropout(),
+        nn.Linear(hidden_units, hidden_units),
+        nn.ReLU(True),
+        nn.Linear(hidden_units, num_labels)
+        #, nn.Softmax() 
+        # Please, notice Softmax layer has not been added as per Pytorch answer:
+        # https://github.com/pytorch/vision/issues/432#issuecomment-368330817
+        # It is not either included in its transfer learning tutorial:
+        # https://pytorch.org/tutorials/beginner/transfer_learning_tutorial.html
+    ])
     
-    
+    model.classifier = nn.Sequential(*features)
+
+    return model
+
+
 
 # This method trains a model
 def train_model(image_datasets, arch='vgg19', hidden_units=4096, epochs=25, learning_rate=0.001, gpu=False):
@@ -66,43 +103,10 @@ def train_model(image_datasets, arch='vgg19', hidden_units=4096, epochs=25, lear
     print('Number of epochs: ', epochs)
     print('Learning rate: ', learning_rate)
 
-    # Load a pre-trained model
-    if arch=='vgg19':
-        # Load a pre-trained model
-        model = models.vgg19(pretrained=True)
-    elif arch=='alexnet':
-        model = models.alexnet(pretrained=True)
-    else:
-        raise ValueError('Unexpected network architecture', arch)
-        
-    # Freeze its parameters
-    for param in model.parameters():
-        param.requires_grad = False
-    
-    # Features, removing the last layer
-    features = list(model.classifier.children())[:-1]
-  
-    # Number of filters in the bottleneck layer
-    num_filters = model.classifier[len(features)].in_features
-
-    # Extend the existing architecture with new layers
+    # Load the model     
     num_labels = len(image_datasets['train'].classes)
-    features.extend([
-        nn.Dropout(),
-        nn.Linear(num_filters, hidden_units),
-        nn.ReLU(True),
-        nn.Dropout(),
-        nn.Linear(hidden_units, hidden_units),
-        nn.ReLU(True),
-        nn.Linear(hidden_units, num_labels)
-        #, nn.Softmax() 
-        # Please, notice Softmax layer has not been added as per Pytorch answer:
-        # https://github.com/pytorch/vision/issues/432#issuecomment-368330817
-        # It is not either included in its transfer learning tutorial:
-        # https://pytorch.org/tutorials/beginner/transfer_learning_tutorial.html
-    ])
-    
-    model.classifier = nn.Sequential(*features)        
+    model = load_model(arch=arch, num_labels=num_labels, hidden_units=hidden_units)
+
 
     # Use gpu if selected and available
     if gpu and torch.cuda.is_available():
@@ -146,7 +150,6 @@ def train_model(image_datasets, arch='vgg19', hidden_units=4096, epochs=25, lear
                 inputs = inputs.to(device)
                 labels = labels.to(device)
                 
-
 
                 # zero the parameter gradients
                 optimizer.zero_grad()
