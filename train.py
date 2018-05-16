@@ -15,12 +15,15 @@ import argparse
 
 # Define command line arguments
 parser = argparse.ArgumentParser()
-parser.add_argument('--data_dir')
+parser.add_argument('--data_dir', type=str, help='Path to dataset ')
 parser.add_argument('--gpu', action='store_true', help='Use GPU if available')
 parser.add_argument('--epochs', type=int, help='Number of epochs')
 parser.add_argument('--arch', type=str, help='Model architecture')
 parser.add_argument('--learning_rate', type=float, help='Learning rate')
 parser.add_argument('--hidden_units', type=int, help='Number of hidden units')
+parser.add_argument('--checkpoint', type=str, help='Save trained model checkpoint to file')
+
+
 
 args, _ = parser.parse_known_args()
 
@@ -53,8 +56,8 @@ def load_model(arch='vgg19', num_labels=102, hidden_units=4096):
         nn.Dropout(),
         nn.Linear(hidden_units, hidden_units),
         nn.ReLU(True),
-        nn.Linear(hidden_units, num_labels)
-        #, nn.Softmax() 
+        nn.Linear(hidden_units, num_labels),
+        ##nn.Softmax(dim=1) 
         # Please, notice Softmax layer has not been added as per Pytorch answer:
         # https://github.com/pytorch/vision/issues/432#issuecomment-368330817
         # It is not either included in its transfer learning tutorial:
@@ -68,7 +71,7 @@ def load_model(arch='vgg19', num_labels=102, hidden_units=4096):
 
 
 # This method trains a model
-def train_model(image_datasets, arch='vgg19', hidden_units=4096, epochs=25, learning_rate=0.001, gpu=False):
+def train_model(image_datasets, arch='vgg19', hidden_units=4096, epochs=25, learning_rate=0.001, gpu=False, checkpoint=''):
     # Use command line values when specified
     if args.arch:
         arch = args.arch     
@@ -84,6 +87,9 @@ def train_model(image_datasets, arch='vgg19', hidden_units=4096, epochs=25, lear
 
     if args.gpu:
         gpu = args.gpu
+
+    if args.checkpoint:
+        checkpoint = args.checkpoint        
         
     # Using the image datasets, define the dataloaders
     dataloaders = {
@@ -98,22 +104,20 @@ def train_model(image_datasets, arch='vgg19', hidden_units=4096, epochs=25, lear
     }    
 
         
-    print('Network architecture: ', arch)
-    print('Number of hidden units: ', hidden_units)
-    print('Number of epochs: ', epochs)
-    print('Learning rate: ', learning_rate)
+    print('Network architecture:', arch)
+    print('Number of hidden units:', hidden_units)
+    print('Number of epochs:', epochs)
+    print('Learning rate:', learning_rate)
 
     # Load the model     
     num_labels = len(image_datasets['train'].classes)
     model = load_model(arch=arch, num_labels=num_labels, hidden_units=hidden_units)
-
 
     # Use gpu if selected and available
     if gpu and torch.cuda.is_available():
         print('Using GPU for training')
         device = torch.device("cuda:0")
         model.cuda()
-        model = nn.DataParallel(model, device_ids=range(torch.cuda.device_count()))
     else:
         print('Using CPU for training')
         device = torch.device("cpu")     
@@ -131,7 +135,7 @@ def train_model(image_datasets, arch='vgg19', hidden_units=4096, epochs=25, lear
     best_acc = 0.0
 
     for epoch in range(epochs):
-        print('Epoch {}/{}'.format(epoch, epochs - 1))
+        print('Epoch {}/{}'.format(epoch + 1, epochs))
         print('-' * 10)
 
         # Each epoch has a training and validation phase
@@ -188,12 +192,26 @@ def train_model(image_datasets, arch='vgg19', hidden_units=4096, epochs=25, lear
         time_elapsed // 60, time_elapsed % 60))
     print('Best val Acc: {:4f}'.format(best_acc))
 
-    # load best model weights
+    # Load best model weights
     model.load_state_dict(best_model_wts)
-
+    
+    # Store class_to_idx into a model property
+    model.class_to_idx = image_datasets['train'].class_to_idx
+    
+    # Save checkpoint if requested
+    if checkpoint:
+        print ('Saving checkpoint to:', checkpoint) 
+        checkpoint_dict = {
+            'arch': arch,
+            'class_to_idx': model.class_to_idx, 
+            'state_dict': model.state_dict(),
+            'hidden_units': hidden_units
+        }
+        
+        torch.save(checkpoint_dict, checkpoint)
+    
+    # Return the model
     return model
-
-
 
 
 # Train model if invoked from command line
@@ -228,4 +246,3 @@ if args.data_dir:
     }
         
     train_model(image_datasets) 
-    
